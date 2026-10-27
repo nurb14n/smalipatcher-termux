@@ -35,7 +35,7 @@ variants is stubbed to `return-void`.
 ## Usage
 
 ```sh
-# build
+# build (atau: make linux | make android | make test)
 go build -o smalipatcher ./cmd/smalipatcher
 
 # pull framework from device
@@ -63,6 +63,31 @@ go build -o smalipatcher ./cmd/smalipatcher
 - `testdata/mock` — pre-patch smali fixtures (golden tests)
 
 ## Notes / limits
+
+## Running on Termux (on-device)
+
+```sh
+# di Termux (bukan proot): dependensi sekali saja
+pkg install android-tools
+# Java: pakai Termux openjdk (sudah ada java-25 di perangkat ini)
+
+# build biner Android native dari repo ini, lalu jalankan di Termux
+make android   # -> smalipatcher-android-arm64 (bisa di-copy ke $HOME Termux)
+```
+
+Alur di perangkat yang sama: aktifkan **Wireless debugging** (Android 11+)
+`adb pair` + `adb connect localhost:PORT`, lalu:
+
+```sh
+./smalipatcher-android-arm64 pull -o services.jar
+./smalipatcher-android-arm64 disasm -api 35 services.jar out
+./smalipatcher-android-arm64 patch --all --api 35 out
+./smalipatcher-android-arm64 verify --all --api 35 out
+./smalipatcher-android-arm64 build out/dist/services.jar /sdcard/Download/smalipatcher-bynurb14n.zip
+```
+
+Lalu flash zip dari `/sdcard/Download` via aplikasi Magisk → reboot.
+`disasm` butuh `apktool.jar` + `java` (Termux openjdk 25, bukan yang Alpine).
 
 - API 35–37 layouts are best-effort: run `verify` on a real dump to lock
   in renamed files/methods for a specific ROM.
