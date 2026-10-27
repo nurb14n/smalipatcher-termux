@@ -6,9 +6,31 @@ package magisk
 import (
 	"archive/zip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
+
+// countWriter tracks bytes written so alignment can be computed.
+type countWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (c *countWriter) Write(p []byte) (int, error) {
+	m, err := c.w.Write(p)
+	c.n += int64(m)
+	return m, err
+}
+
+// alignExtra returns an extra-field padding so that entry data starting
+// after a local header lands on a 4-byte boundary (zipalign -f 4
+// equivalent for the payload entry).
+func alignExtra(current, nameLen int) []byte {
+	hdrLen := 30 + nameLen // local header without extra
+	pad := (4 - (current+hdrLen)%4) % 4
+	return make([]byte, pad)
+}
 
 const (
 	ModuleID   = "smalipatcher-bynurb14n"
@@ -45,12 +67,12 @@ func moduleProp() string {
 		"description=Set mock provider as genuine location provider. Return mock provider has op mock permissions.\n"
 }
 
-// Build creates outZip containing the patched services.jar plus Magisk
-// metadata. patchedJar is the path to the rebuilt services.jar.
+// Build creates outZip with the patched services.jar stored uncompressed
+// and 4-byte aligned, plus Magisk metadata. patchedJar is the rebuilt
+// services.jar path (must exist).
 func Build(patchedJar, outZip string) error {
-	jar, err := os.ReadFile(patchedJar)
-	if err != nil {
-		return fmt.Errorf("read patched jar: %w", err)
+	if _, err := os.Stat(patchedJar); err != nil {
+		return fmt.Errorf("patched jar not found: %s", patchedJar)
 	}
 	if err := os.MkdirAll(filepath.Dir(outZip), 0o755); err != nil {
 		return err
@@ -60,7 +82,8 @@ func Build(patchedJar, outZip string) error {
 		return err
 	}
 	defer f.Close()
-	w := zip.NewWriter(f)
+	cw := &countWriter{w: f}
+	w := zip.NewWriter(cw)
 	defer w.Close()
 	add := func(name string, data []byte, executable bool) error {
 		h := &zip.FileHeader{Name: name, Method: zip.Deflate}
@@ -85,7 +108,23 @@ func Build(patchedJar, outZip string) error {
 	if err := add("META-INF/com/google/android/updater-script", []byte("#MAGISK\n"), false); err != nil {
 		return err
 	}
-	if err := add("system/framework/services.jar", jar, false); err != nil {
+	// services.jar is stored uncompressed and 4-byte aligned so the
+	// runtime can mmap it directly (zipalign -f 4 equivalent; there is
+	// no zipalign binary for aarch64-android, so this is built in).
+	name := "system/framework/services.jar"
+	fh := &zip.FileHeader{Name: name, Method: zip.Store}
+	fh.SetMode(0o644)
+	fh.Extra = alignExtra(int(cw.n), len(name))
+	fw, err := w.CreateHeader(fh)
+	if err != nil {
+		return err
+	}
+	jf, err := os.Open(patchedJar)
+	if err != nil {
+		return err
+	}
+	defer jf.Close()
+	if _, err := io.Copy(fw, jf); err != nil {
 		return err
 	}
 	return w.Close()

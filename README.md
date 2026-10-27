@@ -69,7 +69,11 @@ go build -o smalipatcher ./cmd/smalipatcher
 ```sh
 # di Termux (bukan proot): dependensi sekali saja
 pkg install android-tools
-# Java: pakai Termux openjdk (sudah ada java-25 di perangkat ini)
+# Java: pakai Termux openjdk (java-21 terinstall; apktool 3.0.3 + aapt2 16
+# terinstall via dpkg dari mirror Termux, SHA256 terverifikasi — apt
+# frontend menolak root, jadi install manual via dpkg)
+# zipalign TIDAK tersedia untuk aarch64-android -> diganti alignment 4-byte
+# built-in pada perintah `build` (setara zipalign -f 4, sudah dites)
 
 # build biner Android native dari repo ini, lalu jalankan di Termux
 make android   # -> smalipatcher-android-arm64 (bisa di-copy ke $HOME Termux)
@@ -87,9 +91,9 @@ Alur di perangkat yang sama: aktifkan **Wireless debugging** (Android 11+)
 ```
 
 Lalu flash zip dari `/sdcard/Download` via aplikasi Magisk → reboot.
-`disasm` butuh `apktool.jar` + `java` (Termux openjdk 25, bukan yang Alpine).
+`disasm` butuh `apktool` + `java` (Termux openjdk 21, bukan yang Alpine).
 
 - API 35–37 layouts are best-effort: run `verify` on a real dump to lock
   in renamed files/methods for a specific ROM.
-- `disasm`/`build` shell out to `apktool`/`java`/`zipalign` (same external
-  tools as the reference); `patch`/`verify` are pure Go.
+- `disasm` shell out ke `apktool`/`java` (sama seperti referensi);
+  `patch`/`verify`/`build` murni Go (termasuk alignment zip).
