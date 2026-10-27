@@ -1,17 +1,20 @@
-# smalipatcher-app
+# smalipatcher-termux
 
 Terminal rewrite (Go, zero dependencies) of the SmaliPatcherEx
 **mock provider** + **mock permission** patch flow, generalized to
-**Android 11–17 (API 30–37)**.
+**Android 11–17 (API 30–37)**. Runs **only on Termux** (Android/aarch64):
+it shells out to the Termux packages `adb`, `apktool` and `java`.
 
 Reference: `SmaliPatcherEx-0.1.2.2.zip` (sabpprook, MD5
 `853628a96dbe08b5228504655004b2b4`) — a Windows .NET tool that pulls
-`services.jar` from the device, decompiles it with apktool, applies regex
-text patches to `.smali` files, recompiles, zipaligns, and packs a Magisk
-module. The original supports Android 11–14; this rewrite keeps the same
-patch semantics and adds variant-tolerant rules plus `--api` targeting so
-API 35–37 (Android 15–17) layouts are handled: unknown files or renamed
-methods are skipped with a report instead of failing.
+`services.jar` from the device, decompiles it with apktool 2.9.3, applies
+regex text patches to `.smali` files, recompiles, zipaligns, and packs a
+Magisk module. The original supports Android 11–14 (decode flags
+`d -b -f -k -api`); this rewrite targets apktool 3.x (`d --no-debug-info
+-f --keep-broken-res`, no `-api` on decode) and adds variant-tolerant
+rules plus `--api` targeting so API 35–37 (Android 15–17) layouts are
+handled: unknown files or renamed methods are skipped with a report
+instead of failing.
 
 ## What the patches do
 
@@ -32,68 +35,42 @@ methods are skipped with a report instead of failing.
 **GNSS (bonus)**: `reportLocation(` in both `GnssLocationProvider`
 variants is stubbed to `return-void`.
 
-## Usage
+## Install (Termux)
 
 ```sh
-# build (atau: make linux | make android | make test)
-go build -o smalipatcher ./cmd/smalipatcher
-
-# pull framework from device
-./smalipatcher pull -o services.jar
-
-# decompile (needs apktool + java; -api 0 = auto)
-./smalipatcher disasm -api 35 services.jar out
-
-# patch (default: all suites; --api 0 = try all known variants)
-./smalipatcher patch --mock-provider --mock-permission --api 37 out
-
-# verify post-state (fails only on applicable-but-unsatisfied rules)
-./smalipatcher verify --all --api 37 out
-
-# pack Magisk module
-./smalipatcher build services.patched.jar smalipatcher-app.zip
+pkg install android-tools   # adb
+# java-21, apktool 3.0.3, aapt2: Termux packages (see commit history)
+make install                # builds + installs `smalipatcher` to $PREFIX/bin
 ```
+
+## Usage (on-device)
+
+Aktifkan **Wireless debugging** (Android 11+), `adb pair` +
+`adb connect localhost:PORT`, lalu:
+
+```sh
+smalipatcher pull -o services.jar
+smalipatcher disasm -api 34 services.jar out
+smalipatcher patch --mock-provider --mock-permission --api 34 out
+smalipatcher verify --all --api 34 out
+smalipatcher recomp out dist/services.jar
+smalipatcher build dist/services.jar /sdcard/Download/smalipatcher-bynurb14n.zip
+```
+
+Lalu flash zip dari `/sdcard/Download` via aplikasi Magisk → reboot.
 
 ## Layout
 
-- `cmd/smalipatcher` — CLI (`pull/disasm/patch/verify/build`)
+- `cmd/smalipatcher` — CLI (`pull/disasm/patch/verify/recomp/build`)
 - `internal/patcher` — rule table + regex engine + verify (`go test ./...`)
 - `internal/adb` — device pull / API-level readout
-- `internal/magisk` — Magisk module zip builder
+- `internal/magisk` — Magisk module zip builder (built-in 4-byte
+  alignment; no zipalign binary exists for aarch64-android)
 - `testdata/mock` — pre-patch smali fixtures (golden tests)
 
 ## Notes / limits
 
-## Running on Termux (on-device)
-
-```sh
-# di Termux (bukan proot): dependensi sekali saja
-pkg install android-tools
-# Java: pakai Termux openjdk (java-21 terinstall; apktool 3.0.3 + aapt2 16
-# terinstall via dpkg dari mirror Termux, SHA256 terverifikasi — apt
-# frontend menolak root, jadi install manual via dpkg)
-# zipalign TIDAK tersedia untuk aarch64-android -> diganti alignment 4-byte
-# built-in pada perintah `build` (setara zipalign -f 4, sudah dites)
-
-# build biner Android native dari repo ini, lalu jalankan di Termux
-make android   # -> smalipatcher-android-arm64 (bisa di-copy ke $HOME Termux)
-```
-
-Alur di perangkat yang sama: aktifkan **Wireless debugging** (Android 11+)
-`adb pair` + `adb connect localhost:PORT`, lalu:
-
-```sh
-./smalipatcher-android-arm64 pull -o services.jar
-./smalipatcher-android-arm64 disasm -api 35 services.jar out
-./smalipatcher-android-arm64 patch --all --api 35 out
-./smalipatcher-android-arm64 verify --all --api 35 out
-./smalipatcher-android-arm64 build out/dist/services.jar /sdcard/Download/smalipatcher-bynurb14n.zip
-```
-
-Lalu flash zip dari `/sdcard/Download` via aplikasi Magisk → reboot.
-`disasm` butuh `apktool` + `java` (Termux openjdk 21, bukan yang Alpine).
-
 - API 35–37 layouts are best-effort: run `verify` on a real dump to lock
   in renamed files/methods for a specific ROM.
-- `disasm` shell out ke `apktool`/`java` (sama seperti referensi);
-  `patch`/`verify`/`build` murni Go (termasuk alignment zip).
+- Hanya Termux yang didukung (prefix `/data/data/com.termux/files/usr`);
+  tidak untuk proot distro / desktop Linux.

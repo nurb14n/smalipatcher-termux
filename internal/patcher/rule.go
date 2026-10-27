@@ -87,6 +87,13 @@ var Rules = []Rule{
 	},
 	{
 		Suite:      "mock-provider",
+		TargetFile: `com/android/server/location/LocationManagerService.smali`,
+		MethodSig:  "method private canCallerAccessMockLocation(",
+		Mode:       StubTrue,
+		Note:       "Patched: canCallerAccessMockLocation",
+	},
+	{
+		Suite:      "mock-provider",
 		TargetFile: `com/android/server/LocationManagerService.smali`,
 		MethodSig:  "method public checkMockLocationAccess(",
 		Mode:       StubTrue,
@@ -94,7 +101,21 @@ var Rules = []Rule{
 	},
 	{
 		Suite:      "mock-provider",
+		TargetFile: `com/android/server/location/LocationManagerService.smali`,
+		MethodSig:  "method public checkMockLocationAccess(",
+		Mode:       StubTrue,
+		Note:       "Patched: checkMockLocationAccess",
+	},
+	{
+		Suite:      "mock-provider",
 		TargetFile: `com/android/server/LocationManagerService.smali`,
+		MethodSig:  "method public noteMockLocationAccess(",
+		Mode:       StubVoid,
+		Note:       "Patched: noteMockLocationAccess",
+	},
+	{
+		Suite:      "mock-provider",
+		TargetFile: `com/android/server/location/LocationManagerService.smali`,
 		MethodSig:  "method public noteMockLocationAccess(",
 		Mode:       StubVoid,
 		Note:       "Patched: noteMockLocationAccess",
@@ -116,6 +137,13 @@ var Rules = []Rule{
 	{
 		Suite:      "mock-permission",
 		TargetFile: `com/android/server/location/AppOpsHelper.smali`,
+		MethodSig:  "method public noteOp(",
+		Mode:       StubTrue,
+		Note:       "Patched: noteOp",
+	},
+	{
+		Suite:      "mock-permission",
+		TargetFile: `com/android/server/location/injector/AppOpsHelper.smali`,
 		MethodSig:  "method public noteOp(",
 		Mode:       StubTrue,
 		Note:       "Patched: noteOp",
@@ -187,8 +215,60 @@ func ApplySuites(dir string, suites map[string]bool, api int) ([]Result, error) 
 	return out, nil
 }
 
+// targetFiles resolves a rule target against a baksmali output tree.
+// Single-dex trees keep classes directly under dir; multidex trees split
+// them across smali/, smali_classes2/, ... All matches are returned so
+// every dex slice gets patched.
+func targetFiles(dir, rel string) []string {
+	rel = filepath.FromSlash(rel)
+	seen := map[string]bool{}
+	var out []string
+	add := func(p string) {
+		if seen[p] {
+			return
+		}
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	add(filepath.Join(dir, rel))
+	matches, _ := filepath.Glob(filepath.Join(dir, "smali*"))
+	for _, sm := range matches {
+		if st, err := os.Stat(sm); err != nil || !st.IsDir() {
+			continue
+		}
+		add(filepath.Join(sm, rel))
+	}
+	return out
+}
+
 func applyRule(dir string, r Rule) (Result, error) {
-	res := Result{Rule: r, File: filepath.Join(dir, filepath.FromSlash(r.TargetFile))}
+	files := targetFiles(dir, r.TargetFile)
+	if len(files) == 0 {
+		return Result{Rule: r, File: filepath.Join(dir, filepath.FromSlash(r.TargetFile)), Skipped: true, Detail: "target file not present, skipped"}, nil
+	}
+	// Patch every dex slice that contains the target.
+	last := Result{}
+	for _, f := range files {
+		res, err := applyFile(f, r)
+		if err != nil {
+			return res, err
+		}
+		if res.Changed {
+			last = res
+		} else if last.File == "" {
+			last = res
+		}
+	}
+	if len(files) > 1 {
+		last.Detail += fmt.Sprintf(" (%d dex slices)", len(files))
+	}
+	return last, nil
+}
+
+func applyFile(file string, r Rule) (Result, error) {
+	res := Result{Rule: r, File: file}
 	raw, err := os.ReadFile(res.File)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -257,10 +337,19 @@ func rewriteMethod(src string, r Rule) (string, bool, string) {
 	block := src[start:end]
 	var replacement string
 	switch r.Mode {
-	case StubTrue:
-		replacement = stubBody(block, "\n    const/4 v0, 0x1\n\n    return v0\n")
-	case StubVoid:
-		replacement = stubBody(block, "\n    return-void\n")
+	case StubTrue, StubVoid:
+		// Never inject code into abstract/native declarations (e.g.
+		// AppOpsHelper's abstract noteOp on some ROMs) — that would
+		// produce invalid dex and risk a bootloop.
+		decl := strings.TrimSpace(strings.SplitN(block, "\n", 2)[0])
+		if strings.Contains(decl, " abstract ") || strings.Contains(decl, " native ") {
+			return src, false, "abstract/native declaration, skipped"
+		}
+		if r.Mode == StubTrue {
+			replacement = stubBody(block, "\n    const/4 v0, 0x1\n\n    return v0\n")
+		} else {
+			replacement = stubBody(block, "\n    return-void\n")
+		}
 	case RewriteSetIsFromMock:
 		return rewriteSetIsFromMock(src, start, block, end-start)
 	default:

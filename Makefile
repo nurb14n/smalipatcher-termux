@@ -1,17 +1,18 @@
+# smalipatcher-termux: built to run ONLY on Termux (Android/aarch64).
+# Delegates to Termux packages: adb (android-tools), apktool, java.
 BINARY      := smalipatcher
 PKG         := ./cmd/smalipatcher
-ANDROID_OUT := $(BINARY)-android-arm64
+PREFIX      ?= /data/data/com.termux/files/usr
 
-.PHONY: all linux android test vet clean
+.PHONY: all install test vet clean
 
-all: linux
+# Default: native Android binary (runs directly in Termux, no proot).
+all:
+	GOOS=android GOARCH=arm64 go build -o $(BINARY) $(PKG)
 
-linux:
-	go build -o $(BINARY) $(PKG)
-
-# Native Termux binary (Android/bionic, runs outside proot).
-android:
-	GOOS=android GOARCH=arm64 go build -o $(ANDROID_OUT) $(PKG)
+# Install as the `smalipatcher` command in Termux.
+install: all
+	install -m755 $(BINARY) $(PREFIX)/bin/$(BINARY)
 
 test:
 	go test ./...
@@ -20,4 +21,4 @@ vet:
 	go vet ./...
 
 clean:
-	rm -f $(BINARY) $(ANDROID_OUT)
+	rm -f $(BINARY) smalipatcher-android-arm64

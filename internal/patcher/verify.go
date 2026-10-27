@@ -24,21 +24,25 @@ func Verify(dir string, suites map[string]bool, api int) ([]Result, error) {
 			out = append(out, res)
 			continue
 		}
-		raw, err := os.ReadFile(res.File)
-		if err != nil {
-			if os.IsNotExist(err) {
-				res.Skipped = true
-				res.Detail = "target file not present"
-				out = append(out, res)
-				continue
-			}
-			return out, fmt.Errorf("read %s: %w", res.File, err)
+		files := targetFiles(dir, r.TargetFile)
+		if len(files) == 0 {
+			res.Skipped = true
+			res.Detail = "target file not present"
+			out = append(out, res)
+			continue
 		}
-		ok, skipped, detail := checkPostState(string(raw), r)
-		res.Changed = ok
-		res.Skipped = skipped
-		res.Detail = detail
-		out = append(out, res)
+		for _, f := range files {
+			fr := Result{Rule: r, File: f}
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				return out, fmt.Errorf("read %s: %w", f, err)
+			}
+			ok, skipped, detail := checkPostState(string(raw), r)
+			fr.Changed = ok
+			fr.Skipped = skipped
+			fr.Detail = detail
+			out = append(out, fr)
+		}
 	}
 	return out, nil
 }
