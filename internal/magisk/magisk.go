@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	ModuleID   = "smalipatcher-app"
-	ModuleName = "Smali Patcher App"
+	ModuleID   = "smalipatcher-bynurb14n"
+	ModuleName = "SmaliPatcher by nurb14n"
 	Version    = "0.1.0"
 )
 
@@ -20,13 +20,13 @@ const (
 // banner, mounts system, installs services.jar, and removes stale
 // dalvik-cache oat artifacts generated from the old services.jar.
 const updateBinary = `#!/sbin/sh
-ui_print "          Smali Patcher App          "
-ui_print "  mock provider + mock permission   "
+ui_print "      SmaliPatcher by nurb14n      "
+ui_print "   mock provider + mock permission   "
 OUTFD=$2
 ZIPFILE=$3
 mount /system 2>/dev/null || mount -o rw,remount /system 2>/dev/null
-mkdir -p /data/adb/modules/smalipatcher-app/system/framework
-unzip -o "$ZIPFILE" 'system/*' -d /data/adb/modules/smalipatcher-app/
+mkdir -p /data/adb/modules/smalipatcher-bynurb14n/system/framework
+unzip -o "$ZIPFILE" 'system/*' -d /data/adb/modules/smalipatcher-bynurb14n/
 for f in $(find /data/dalvik-cache -iname '*@services.jar*class*' 2>/dev/null); do
   rm -f "$f"
 done
