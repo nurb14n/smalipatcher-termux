@@ -40,6 +40,8 @@ func main() {
 		err = cmdVerify(os.Args[2:])
 	case "recomp":
 		err = cmdRecomp(os.Args[2:])
+	case "auto":
+		err = cmdAuto(os.Args[2:])
 	case "build":
 		err = cmdBuild(os.Args[2:])
 	default:
@@ -53,13 +55,15 @@ func main() {
 }
 
 func usage() {
-	fmt.Println(`usage: smalipatcher <pull|disasm|patch|verify|recomp|build> [flags]  (Termux-only)
+	fmt.Println(`usage: smalipatcher <pull|disasm|patch|verify|recomp|auto|build> [flags]  (Termux-only)
 
   pull    [-s serial] [-o services.jar]   pull services.jar from device
   disasm  [-jar apktool.jar] [-api N] services.jar out-dir
   patch   [--mock-provider] [--mock-permission] [--gnss] [--all] [--api N] out-dir
   verify  [--mock-provider] [--mock-permission] [--gnss] [--all] [--api N] out-dir
   recomp  [-jar apktool.jar] out-dir dist/services.jar
+  auto    [-s serial] [--mock-provider] [--mock-permission] [--gnss] [--all] [--api N]
+          [--workdir dir] [--zip module.zip] [-y]   full pipeline, stops on failure
   build   dist/services.jar module.zip
 
 Target API levels: 30-34 = Android 11-14 (as the reference tool),
@@ -262,4 +266,96 @@ func cmdBuild(args []string) error {
 	}
 	fmt.Printf("wrote %s\n", fs.Arg(1))
 	return nil
+}
+
+func cmdAuto(args []string) error {
+	fs := flag.NewFlagSet("auto", flag.ExitOnError)
+	mp, mperm, gnss, all := suiteFlags(fs)
+	apiFlag := fs.Int("api", 0, "target Android API level (0 = auto-detect from device)")
+	serial := fs.String("s", "", "device serial (default: first adb device)")
+	workdir := fs.String("workdir", "smalipatcher-work", "working directory")
+	zipOut := fs.String("zip", "/sdcard/Download/smalipatcher-bynurb14n.zip", "output module zip")
+	yes := fs.Bool("y", false, "non-interactive: skip confirmation")
+	fs.Parse(args)
+
+	devs, err := adb.Devices()
+	if err != nil {
+		return err
+	}
+	if len(devs) == 0 {
+		return fmt.Errorf("no adb device found — pair with: adb pair localhost:PORT, then adb connect localhost:PORT")
+	}
+	s := *serial
+	if s == "" {
+		if len(devs) > 1 {
+			return fmt.Errorf("multiple devices (%v), pick one with -s", devs)
+		}
+		s = devs[0]
+	}
+	api := *apiFlag
+	if api == 0 {
+		api, err = adb.APILevel(s)
+		if err != nil {
+			return err
+		}
+	}
+	suites := suiteSet(*mp, *mperm, *gnss, *all)
+	names := []string{}
+	for k, v := range suites {
+		if v {
+			names = append(names, k)
+		}
+	}
+	jar := filepath.Join(*workdir, "services.jar")
+	out := filepath.Join(*workdir, "out")
+	dist := filepath.Join(*workdir, "dist", "services.jar")
+
+	fmt.Printf("plan: device=%s api=%d suites=%v\n  pull -> %s\n  disasm -> %s\n  patch+verify\n  recomp -> %s\n  build -> %s\n",
+		s, api, names, jar, out, dist, *zipOut)
+	if !*yes {
+		fmt.Print("Lanjut? [y/N] ")
+		var ans string
+		fmt.Scanln(&ans)
+		if ans != "y" && ans != "Y" {
+			return fmt.Errorf("dibatalkan")
+		}
+	}
+	steps := []struct {
+		name string
+		fn   func([]string) error
+		args []string
+	}{
+		{"pull", cmdPull, []string{"-s", s, "-o", jar}},
+		{"disasm", cmdDisasm, []string{"-api", fmt.Sprint(api), jar, out}},
+		{"patch", cmdPatch, append(suiteArgs(*mp, *mperm, *gnss, *all), "--api", fmt.Sprint(api), out)},
+		{"verify", cmdVerify, append(suiteArgs(*mp, *mperm, *gnss, *all), "--api", fmt.Sprint(api), out)},
+		{"recomp", cmdRecomp, []string{out, dist}},
+		{"build", cmdBuild, []string{dist, *zipOut}},
+	}
+	for _, st := range steps {
+		fmt.Printf("=== %s ===\n", st.name)
+		if err := st.fn(st.args); err != nil {
+			return fmt.Errorf("%s failed: %w (workdir kept at %s)", st.name, err, *workdir)
+		}
+	}
+	fmt.Printf("done: %s — flash via Magisk, then reboot\n", *zipOut)
+	return nil
+}
+
+// suiteArgs converts suite flag state back into patch/verify CLI args.
+func suiteArgs(mp, mperm, gnss, all bool) []string {
+	if all || (!mp && !mperm && !gnss) {
+		return []string{"--all"}
+	}
+	var a []string
+	if mp {
+		a = append(a, "--mock-provider")
+	}
+	if mperm {
+		a = append(a, "--mock-permission")
+	}
+	if gnss {
+		a = append(a, "--gnss")
+	}
+	return a
 }
