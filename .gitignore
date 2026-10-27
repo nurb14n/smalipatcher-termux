@@ -12,4 +12,6 @@ Thumbs.db
 build/
 dist/
 out/
+smalipatcher
+smalipatcher-android-arm64
 *.log
