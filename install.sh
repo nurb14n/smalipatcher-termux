@@ -24,17 +24,19 @@ echo "==> installing Termux packages (adb, apktool, java)..."
 pkg install -y android-tools apktool aapt2 openjdk-21
 
 echo "==> downloading smalipatcher..."
+TMPDIR="${TMPDIR:-$PREFIX/tmp}"
+mkdir -p "$TMPDIR"
 URL="https://github.com/${REPO}/releases/latest/download/${BIN}"
-curl -fsSL -o "/tmp/${BIN}" "$URL"
-if curl -fsSL -o "/tmp/${BIN}.sha256" "https://github.com/${REPO}/releases/latest/download/${BIN}.sha256"; then
-  (cd /tmp && sha256sum -c "${BIN}.sha256")
+curl -fsSL -o "${TMPDIR}/${BIN}" "$URL"
+if curl -fsSL -o "${TMPDIR}/${BIN}.sha256" "https://github.com/${REPO}/releases/latest/download/${BIN}.sha256"; then
+  (cd "$TMPDIR" && sha256sum -c "${BIN}.sha256")
 else
   echo "warn: no checksum file, skipping verification"
 fi
 
 echo "==> installing to ${PREFIX}/bin/smalipatcher ..."
-install -m755 "/tmp/${BIN}" "${PREFIX}/bin/smalipatcher"
-rm -f "/tmp/${BIN}" "/tmp/${BIN}.sha256"
+install -m755 "${TMPDIR}/${BIN}" "${PREFIX}/bin/smalipatcher"
+rm -f "${TMPDIR}/${BIN}" "${TMPDIR}/${BIN}.sha256"
 
 echo "==> verifying..."
 command -v smalipatcher
