@@ -5,6 +5,12 @@ Terminal rewrite (Go, zero dependencies) of the SmaliPatcherEx
 **Android 11–17 (API 30–37)**. Runs **only on Termux** (Android/aarch64):
 it shells out to the Termux packages `adb`, `apktool` and `java`.
 
+Install (Termux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nurb14n/smalipatcher-termux/master/install.sh | bash
+```
+
 Reference: `SmaliPatcherEx-0.1.2.2.zip` (sabpprook, MD5
 `853628a96dbe08b5228504655004b2b4`) — a Windows .NET tool that pulls
 `services.jar` from the device, decompiles it with apktool 2.9.3, applies
@@ -55,6 +61,13 @@ smalipatcher patch --mock-provider --mock-permission --api 34 out
 smalipatcher verify --all --api 34 out
 smalipatcher recomp out dist/services.jar
 smalipatcher build dist/services.jar /sdcard/Download/smalipatcher-bynurb14n.zip
+```
+
+Atau otomatis penuh (berhenti bila ada tahap gagal):
+
+```sh
+smalipatcher auto --api 34
+smalipatcher auto --api 34 -y   # tanpa konfirmasi
 ```
 
 Lalu flash zip dari `/sdcard/Download` via aplikasi Magisk → reboot.
